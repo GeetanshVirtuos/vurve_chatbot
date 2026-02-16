@@ -5,3 +5,4 @@ chroma_db/
 *.pkl
 *.keras
 PPT/
+shopping_queries_dataset/
