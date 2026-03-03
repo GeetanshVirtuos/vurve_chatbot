@@ -6,3 +6,4 @@ chroma_db/
 *.keras
 PPT/
 shopping_queries_dataset/
+dev/
