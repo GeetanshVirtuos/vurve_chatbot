@@ -4,11 +4,13 @@ import httpx
 import asyncio # Will be needed outside ipynb
 import copy
 import uuid
-from typing import TypedDict
+import json
+from typing import TypedDict, Any
 from dotenv import load_dotenv  
 from langgraph.graph import StateGraph, END, START
 from src.logger import LOG_TYPES, logger
 from src.redis_utils import test_redis_connection, get_redis_client, store_user_message_to_redis, get_user_chat_context
+from src.types.api import ChatResponse
 load_dotenv()
 
 if "TEST_VARIABLE" in os.environ:
@@ -24,7 +26,7 @@ class AgentState(TypedDict):
     user_uuid: str
     last_user_message: str
     data: dict
-    response_object: dict
+    response_object: Any  # FastAPI Response object
 
 async def classify_message_intent(state: AgentState) -> AgentState:
     """Classify the intent of the message."""
@@ -94,28 +96,99 @@ def route_after_classification(state: AgentState) -> str:
 async def recommend_product(state: AgentState) -> AgentState:
     """Recommend a product based on the message."""
 
-    # Placeholder implementation
+    new_state: AgentState = copy.deepcopy(state)
+    
     logger(f"Recommending product for message: '{state['last_user_message']}'", LOG_TYPES.INFORMATION)
+    
+    # Generate product recommendation based on message
+    bot_message = f"I recommend checking out our premium products for '{state['last_user_message']}'. Here are some great options!"
+    
+    # Store the bot message in state for response
+    new_state['data']['bot_message'] = bot_message
     
     try:
         # Store the bot response to Redis as well
         store_user_message_to_redis(
             redis_client,
             state["user_uuid"], 
-            'Recommended Product XYZ', 
+            bot_message, 
             "bot_response"
         )
 
-        logger(f"Recommended product XYZ sent to user: '{state['user_uuid']}'", LOG_TYPES.SUCCESS)
+        logger(f"Product recommendation generated for user: '{state['user_uuid']}'", LOG_TYPES.SUCCESS)
     except Exception as e:
         logger(f"Failed to store bot response to Redis: {e}", LOG_TYPES.ERROR)
     
-    return state
+    return new_state
 
 def send_response_to_user(state: AgentState) -> AgentState:
-    """Send a response back to the user."""
-    # Placeholder implementation
-    logger(f"Response sent to user, ending the conversation.", LOG_TYPES.INFORMATION)
+    """Send HTTP response back to the user via FastAPI Response object."""
+    
+    response_obj = state.get('response_object')
+    user_uuid = state['user_uuid']
+    
+    # If no response object, this is probably a test run
+    if not response_obj:
+        logger("No response object found - likely running in test mode", LOG_TYPES.INFORMATION)
+        return copy.deepcopy(state)
+    
+    try:
+        # Determine response based on state data using ChatResponse model
+        if 'classification_error' in state['data']:
+            # Handle classification errors - create ChatResponse with error
+            chat_response = ChatResponse(
+                user_uuid=user_uuid,
+                error=state['data']['classification_error']
+            )
+            status_code = 400
+            
+            logger(f"Sending error response to user {user_uuid}: {state['data']['classification_error']}", LOG_TYPES.WARNING)
+            
+        elif 'bot_message' in state['data']:
+            # Handle successful bot responses - create ChatResponse with bot_message
+            chat_response = ChatResponse(
+                user_uuid=user_uuid,
+                bot_message=state['data']['bot_message']
+            )
+            status_code = 200
+            
+            logger(f"Sending bot response to user {user_uuid}", LOG_TYPES.SUCCESS)
+            
+        else:
+            # Default fallback for unhandled cases - create ChatResponse with error
+            chat_response = ChatResponse(
+                user_uuid=user_uuid,
+                error="No response generated"
+            )
+            status_code = 500
+            
+            logger(f"Sending fallback error response to user {user_uuid}", LOG_TYPES.WARNING)
+        
+        # Set response headers and status
+        response_obj.status_code = status_code
+        response_obj.headers["content-type"] = "application/json"
+        
+        # Convert ChatResponse to JSON, then encode to bytes
+        response_json = chat_response.model_dump_json()
+        response_obj.body = response_json.encode()
+        
+        logger(f"HTTP response sent: {status_code} - {chat_response.model_dump()}", LOG_TYPES.SUCCESS)
+        
+    except Exception as e:
+        logger(f"Failed to send HTTP response: {e}", LOG_TYPES.ERROR)
+        
+        # Set emergency fallback response using ChatResponse model
+        emergency_response = ChatResponse(
+            user_uuid=user_uuid,
+            error="Internal server error while formatting response"
+        )
+        
+        response_obj.status_code = 500
+        response_obj.headers["content-type"] = "application/json"
+        response_obj.body = emergency_response.model_dump_json().encode()
+        
+        logger("Emergency fallback response sent", LOG_TYPES.ERROR)
+    
     return copy.deepcopy(state)
 
 graph = StateGraph(AgentState)
@@ -145,7 +218,7 @@ if __name__ == "__main__":
 
     input = {
         "user_uuid": test_user_uuid,
-        "last_user_message": "I want a ring for my girlfriend",
+        "last_user_message": "Which iphone should I buy?",
         "data": {}
     }
 
