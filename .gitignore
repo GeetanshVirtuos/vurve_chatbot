@@ -7,3 +7,4 @@ chroma_db/
 PPT/
 shopping_queries_dataset/
 dev/
+__pycache__/

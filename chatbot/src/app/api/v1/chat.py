@@ -13,7 +13,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-@app.post("/api/v1/talk", response_model=ChatResponse)
+@app.post("/api/v1/talk")
 async def talk(request: ChatRequest, response: Response):
     """
     Chat endpoint - hands full control to LangGraph workflow.
