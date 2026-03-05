@@ -26,7 +26,6 @@ class AgentState(TypedDict):
     user_uuid: str
     last_user_message: str
     data: dict
-    response_object: Any  # FastAPI Response object
 
 async def classify_message_intent(state: AgentState) -> AgentState:
     """Classify the intent of the message."""
@@ -124,13 +123,7 @@ async def recommend_product(state: AgentState) -> AgentState:
 def send_response_to_user(state: AgentState) -> AgentState:
     """Send HTTP response back to the user via FastAPI Response object."""
     
-    response_obj = state.get('response_object')
     user_uuid = state['user_uuid']
-    
-    # If no response object, this is probably a test run
-    if not response_obj:
-        logger("No response object found - likely running in test mode", LOG_TYPES.INFORMATION)
-        return copy.deepcopy(state)
     
     try:
         # Determine response based on state data using ChatResponse model
@@ -164,32 +157,29 @@ def send_response_to_user(state: AgentState) -> AgentState:
             
             logger(f"Sending fallback error response to user {user_uuid}", LOG_TYPES.WARNING)
         
-        # Set response headers and status
-        response_obj.status_code = status_code
-        response_obj.headers["content-type"] = "application/json"
+        # Store response data in state for FastAPI to return
+        new_state = copy.deepcopy(state)
+        new_state['data']['response_data'] = chat_response
+        new_state['data']['response_status_code'] = status_code
         
-        # Convert ChatResponse to JSON, then encode to bytes
-        response_json = chat_response.model_dump_json()
-        response_obj.body = response_json.encode()
-        
-        logger(f"HTTP response sent: {status_code} - {chat_response.model_dump()}", LOG_TYPES.SUCCESS)
+        logger(f"Response prepared: {status_code} - {chat_response.model_dump()}", LOG_TYPES.SUCCESS)
+        return new_state
         
     except Exception as e:
-        logger(f"Failed to send HTTP response: {e}", LOG_TYPES.ERROR)
+        logger(f"Failed to prepare HTTP response: {e}", LOG_TYPES.ERROR)
         
         # Set emergency fallback response using ChatResponse model
-        emergency_response = ChatResponse(
+        error_response = ChatResponse(
             user_uuid=user_uuid,
             error="Internal server error while formatting response"
         )
         
-        response_obj.status_code = 500
-        response_obj.headers["content-type"] = "application/json"
-        response_obj.body = emergency_response.model_dump_json().encode()
-        
-        logger("Emergency fallback response sent", LOG_TYPES.ERROR)
-    
-    return copy.deepcopy(state)
+        new_state = copy.deepcopy(state)
+        new_state['data']['response_data'] = error_response
+        new_state['data']['response_status_code'] = 500
+            
+        logger("Internal Servor error in langgraph node 'send_response_to_user'", LOG_TYPES.ERROR)
+        return new_state
 
 graph = StateGraph(AgentState)
 graph.add_node("intent_classifier", classify_message_intent)
@@ -218,7 +208,7 @@ if __name__ == "__main__":
 
     input = {
         "user_uuid": test_user_uuid,
-        "last_user_message": "Which iphone should I buy?",
+        "last_user_message": "Which Samsung should I buy?",
         "data": {}
     }
 

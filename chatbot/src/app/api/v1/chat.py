@@ -16,45 +16,59 @@ app = FastAPI(
 @app.post("/api/v1/talk")
 async def talk(request: ChatRequest, response: Response):
     """
-    Chat endpoint - hands full control to LangGraph workflow.
+    Chat endpoint - hands control to LangGraph workflow and extracts response.
     
-    The LangGraph nodes will handle:
-    - Response content
-    - HTTP status codes  
-    - Error handling
-    - Response format
+    LangGraph will process the request and return {status: <>, response: <>} in state data.
+    This route extracts those values and handles the HTTP response.
     """
     
     logger(f"Received chat request from user: {request.user_uuid}", LOG_TYPES.INFORMATION)
     
     try:
-        # Hand off complete control to LangGraph
-        await bot.ainvoke({
+        # Hand off to LangGraph workflow
+        result = await bot.ainvoke({
             "user_uuid": request.user_uuid,
             "last_user_message": request.msg,
-            "response_object": response,  # FastAPI Response object
             "data": {}
         })
+
+        # Extract status and response from LangGraph result
+        status_code = result.get('data', {}).get('response_status_code', 500)
+        response_data = result.get('data', {}).get('response_data')
         
-        # If we reach here, the graph completed successfully and the actual response was already sent by the graph nodes
-        logger(f"Chat workflow completed for user: {request.user_uuid}", LOG_TYPES.SUCCESS)
+        # Set response headers and status code
+        response.status_code = status_code
+        response.headers["content-type"] = "application/json"
+        
+        if response_data:
+            logger(f"Returning response: {status_code} - {response_data}", LOG_TYPES.SUCCESS)
+            return response_data
+        else:
+            # Fallback if no response data was generated
+            fallback_response = ChatResponse(
+                user_uuid=request.user_uuid,
+                error="Workflow completed but no response data generated"
+            ).model_dump()
+            
+            response.status_code = 500
+            logger("Fallback response returned", LOG_TYPES.WARNING)
+            return fallback_response
         
     except Exception as e:
-        # Last resort error handling - shouldn't normally reach here
+        # Last resort error handling
         logger(f"Critical error in chat workflow: {e}", LOG_TYPES.ERROR)
         
         # Use ChatResponse model for consistent error formatting
         error_response = ChatResponse(
             user_uuid=request.user_uuid,
             error=str(e)
-        )
+        ).model_dump()
         
-        # Set proper error response with status code AND body
         response.status_code = 500
         response.headers["content-type"] = "application/json"
-        response.body = error_response.model_dump_json().encode()
         
-        logger("Server error response sent from /talk", LOG_TYPES.ERROR)
+        logger("Server error response returned from /talk", LOG_TYPES.ERROR)
+        return error_response
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
