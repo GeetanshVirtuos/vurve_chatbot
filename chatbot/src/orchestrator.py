@@ -159,10 +159,10 @@ def send_response_to_user(state: AgentState) -> AgentState:
         
         # Store response data in state for FastAPI to return
         new_state = copy.deepcopy(state)
-        new_state['data']['response_data'] = chat_response
+        new_state['data']['response_data'] = chat_response.model_dump(exclude_none=True)
         new_state['data']['response_status_code'] = status_code
         
-        logger(f"Response prepared: {status_code} - {chat_response.model_dump()}", LOG_TYPES.SUCCESS)
+        logger(f"Response prepared: {status_code} - {chat_response.model_dump(exclude_none=True)}", LOG_TYPES.SUCCESS)
         return new_state
         
     except Exception as e:
@@ -175,7 +175,7 @@ def send_response_to_user(state: AgentState) -> AgentState:
         )
         
         new_state = copy.deepcopy(state)
-        new_state['data']['response_data'] = error_response
+        new_state['data']['response_data'] = error_response.model_dump(exclude_none=True)
         new_state['data']['response_status_code'] = 500
             
         logger("Internal Servor error in langgraph node 'send_response_to_user'", LOG_TYPES.ERROR)

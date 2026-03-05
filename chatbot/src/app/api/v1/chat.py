@@ -48,7 +48,7 @@ async def talk(request: ChatRequest, response: Response):
             fallback_response = ChatResponse(
                 user_uuid=request.user_uuid,
                 error="Workflow completed but no response data generated"
-            ).model_dump()
+            ).model_dump(exclude_none=True)
             
             response.status_code = 500
             logger("Fallback response returned", LOG_TYPES.WARNING)
@@ -62,7 +62,7 @@ async def talk(request: ChatRequest, response: Response):
         error_response = ChatResponse(
             user_uuid=request.user_uuid,
             error=str(e)
-        ).model_dump()
+        ).model_dump(exclude_none=True)
         
         response.status_code = 500
         response.headers["content-type"] = "application/json"
