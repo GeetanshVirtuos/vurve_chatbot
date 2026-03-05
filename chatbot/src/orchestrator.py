@@ -41,7 +41,7 @@ async def classify_message_intent(state: AgentState) -> AgentState:
         )
 
         if(not stored_to_redis):
-            logger("Failed to store user message to Redis, but continuing with intent classification", LOG_TYPES.WARNING)
+            logger("Failed to store user message to Redis", LOG_TYPES.WARNING)
             raise Exception("Failed to store user message to Redis")
 
         url = os.getenv("INTENT_CLASSIFIER_API_URL")
