@@ -19,8 +19,16 @@ if "TEST_VARIABLE" in os.environ:
 else:    
     logger(".env is not working", LOG_TYPES.ERROR)
 
-test_redis_connection()
-redis_client = get_redis_client()
+# Redis client will be initialized lazily in async context
+redis_client = None
+
+async def initialize_redis():
+    """Initialize Redis client asynchronously. Returns the Redis client."""
+    global redis_client
+    if redis_client is None:
+        await test_redis_connection()
+        redis_client = await get_redis_client()
+    return redis_client
 
 class AgentState(TypedDict):
     """State of the agent."""
@@ -34,7 +42,10 @@ async def classify_message_intent(state: AgentState) -> AgentState:
     new_state: AgentState = copy.deepcopy(state)
     
     try:
-        stored_to_redis = store_user_message_to_redis(
+        # Ensure Redis client is initialized
+        redis_client = await initialize_redis()
+        
+        stored_to_redis = await store_user_message_to_redis(
             redis_client,
             state["user_uuid"], 
             state["last_user_message"], 
@@ -111,8 +122,11 @@ async def recommend_product(state: AgentState) -> AgentState:
     new_state['data']['bot_message'] = bot_message
     
     try:
+        # Ensure Redis client is initialized
+        redis_client = await initialize_redis()
+        
         # Store the bot response to Redis as well
-        store_user_message_to_redis(
+        await store_user_message_to_redis(
             redis_client,
             state["user_uuid"], 
             bot_message, 
@@ -186,13 +200,16 @@ def send_response_to_user(state: AgentState) -> AgentState:
         logger("Internal Servor error in langgraph node 'send_response_to_user'", LOG_TYPES.ERROR)
         return new_state
     
-def answer_general_query(state: AgentState) -> AgentState:
+async def answer_general_query(state: AgentState) -> AgentState:
     """Answer Queries of General FAQ/ Company Policy nature."""
     new_state: AgentState = copy.deepcopy(state)
 
     try:
+        # Ensure Redis client is initialized
+        redis_client = await initialize_redis()
+        
         # Step 1: Retrieve conversation history from Redis
-        context = get_user_chat_context(redis_client, state["user_uuid"])
+        context = await get_user_chat_context(redis_client, state["user_uuid"])
         
         if context is None:
             raise Exception("Failed to retrieve context from redis")
@@ -216,7 +233,7 @@ def answer_general_query(state: AgentState) -> AgentState:
         logger(f"Prepared {len(messages)} messages for LLM", LOG_TYPES.INFORMATION)
         
         # Initialize OpenAI client
-        client = OpenAI(
+        openai_client = OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
             base_url=os.getenv("OPENAI_BASE_URL"),
         )
@@ -231,7 +248,7 @@ def answer_general_query(state: AgentState) -> AgentState:
             
             # Send to LLM
             try:
-                completion = client.chat.completions.create(
+                completion = openai_client.chat.completions.create(
                     model="mistral.ministral-3-8b-instruct",
                     messages=messages,
                     # tools=tools  # Add tools parameter here when tools are defined
@@ -275,7 +292,7 @@ def answer_general_query(state: AgentState) -> AgentState:
                 
                 try:
                     # Store bot response to Redis
-                    store_user_message_to_redis(
+                    await store_user_message_to_redis(
                         redis_client,
                         state["user_uuid"],
                         assistant_message.content,
@@ -328,22 +345,26 @@ graph.add_edge("send_response_to_user", END)
 bot = graph.compile()
 
 if __name__ == "__main__":
-    # Test the chatbot with proper user session
-    # test_user_uuid = str(uuid.uuid4())
-    test_user_uuid = "e2ae5050-44b7-4e44-badc-7c48c799ac96" # Using a fixed UUID for testing
-    logger(f"Testing with user UUID: {test_user_uuid}", LOG_TYPES.INFORMATION)
+    async def main():
+        # Test the chatbot with proper user session
+        # test_user_uuid = str(uuid.uuid4())
+        test_user_uuid = "e2ae5050-44b7-4e44-badc-7c48c799ac96" # Using a fixed UUID for testing
+        logger(f"Testing with user UUID: {test_user_uuid}", LOG_TYPES.INFORMATION)
 
-    input = {
-        "user_uuid": test_user_uuid,
-        "last_user_message": "Which Samsung should I buy?",
-        "data": {}
-    }
+        input = {
+            "user_uuid": test_user_uuid,
+            "last_user_message": "Which Samsung should I buy?",
+            "data": {}
+        }
 
-    result = asyncio.run(bot.ainvoke(input))
-    logger(f"Bot result: {result}", LOG_TYPES.INFORMATION)
+        result = await bot.ainvoke(input)
+        logger(f"Bot result: {result}", LOG_TYPES.INFORMATION)
 
-    # Get chat context after interaction
-    context = get_user_chat_context(redis_client, test_user_uuid)
-    logger(f"Chat context after interaction:", LOG_TYPES.INFORMATION)
-    for message in context:
-        logger(f"  {message}", LOG_TYPES.INFORMATION)
+        # Get chat context after interaction
+        redis_client = await initialize_redis()
+        context = await get_user_chat_context(redis_client, test_user_uuid)
+        logger(f"Chat context after interaction:", LOG_TYPES.INFORMATION)
+        for message in context:
+            logger(f"  {message}", LOG_TYPES.INFORMATION)
+    
+    asyncio.run(main())
