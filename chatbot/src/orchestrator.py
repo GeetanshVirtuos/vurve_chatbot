@@ -215,7 +215,12 @@ async def answer_general_query(state: AgentState) -> AgentState:
             raise Exception("Failed to retrieve context from redis")
         
         # Parse Redis messages into OpenAI message format
-        messages = []
+        # Add system message first (O(1) instead of O(n) insert)
+        messages = [{
+            "role": "system", 
+            "content": "You are a helpful customer service assistant. Answer questions about products, company policies, and general inquiries based on the conversation history."
+        }]
+        
         for msg in context:
             if msg.startswith("user_message: "):
                 content = msg.replace("user_message: ", "", 1)
@@ -223,12 +228,6 @@ async def answer_general_query(state: AgentState) -> AgentState:
             elif msg.startswith("bot_response: "):
                 content = msg.replace("bot_response: ", "", 1)
                 messages.append({"role": "assistant", "content": content})
-        
-        # Add system message at the beginning
-        messages.insert(0, {
-            "role": "system", 
-            "content": "You are a helpful customer service assistant. Answer questions about products, company policies, and general inquiries based on the conversation history."
-        })
         
         logger(f"Prepared {len(messages)} messages for LLM", LOG_TYPES.INFORMATION)
         
