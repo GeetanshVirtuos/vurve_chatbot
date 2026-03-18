@@ -1,5 +1,5 @@
 """
-FastAPI Chat Endpoint - Hands control to LangGraph
+FastAPI Chat Endpoint
 """
 import uvicorn
 from fastapi import FastAPI, Response
