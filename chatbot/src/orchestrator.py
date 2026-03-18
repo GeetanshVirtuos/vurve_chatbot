@@ -11,7 +11,7 @@ from openai import OpenAI
 from langgraph.graph import StateGraph, END, START
 from src.logger import LOG_TYPES, logger
 from src.redis_utils import test_redis_connection, get_redis_client, store_user_message_to_redis, get_user_chat_context
-from src.types.api import ChatResponse
+from src.schemas.api import ChatResponse
 from src.aws_utils import retrieve_from_knowledge_base
 from src.vector_search import vector_search_products
 load_dotenv()
