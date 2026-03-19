@@ -4,11 +4,18 @@
  * Optimized for Shopify storefronts
  */
 
+console.log('[GiftCart] Widget script starting...');
+
 (function() {
   'use strict';
 
+  console.log('[GiftCart] IIFE executing...');
+
   // Prevent multiple initializations
-  if (window.GiftCartChatbot) return;
+  if (window.GiftCartChatbot) {
+    console.log('[GiftCart] Already initialized, exiting');
+    return;
+  }
 
   // Configuration
   const DEFAULT_CONFIG = {
@@ -719,14 +726,23 @@
 
   // Initialize chatbot when DOM is ready
   function init() {
+    console.log('[GiftCart] Init function called, readyState:', document.readyState);
+    console.log('[GiftCart] Config:', config);
+    
     if (document.readyState === 'loading') {
+      console.log('[GiftCart] Waiting for DOMContentLoaded...');
       document.addEventListener('DOMContentLoaded', () => {
+        console.log('[GiftCart] DOMContentLoaded fired, creating chatbot...');
         window.GiftCartChatbot = new GiftCartChatbot(config);
+        console.log('[GiftCart] Chatbot created:', window.GiftCartChatbot);
       });
     } else {
+      console.log('[GiftCart] DOM already ready, creating chatbot immediately...');
       window.GiftCartChatbot = new GiftCartChatbot(config);
+      console.log('[GiftCart] Chatbot created:', window.GiftCartChatbot);
     }
   }
 
   init();
+  console.log('[GiftCart] Script execution complete');
 })();

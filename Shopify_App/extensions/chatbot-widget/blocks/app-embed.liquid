@@ -3,11 +3,6 @@
   This app embed loads the chatbot widget on all pages
 {% endcomment %}
 
-<!-- DEBUG: GiftCart Chatbot is loading -->
-<div id="giftcart-debug" style="position: fixed; top: 0; left: 0; background: red; color: white; padding: 5px; z-index: 999999;">
-  GiftCart Extension Loaded!
-</div>
-
 <script>
   window.GIFTCART_CHAT_CONFIG = {
     apiUrl: {{ block.settings.api_url | json }},
@@ -17,7 +12,6 @@
       position: {{ block.settings.position | json }}
     }
   };
-  console.log('GiftCart Config:', window.GIFTCART_CHAT_CONFIG);
 </script>
 
 <script src="{{ 'widget.js' | asset_url }}" defer></script>
