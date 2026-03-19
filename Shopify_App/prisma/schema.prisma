@@ -1,0 +1,31 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "sqlite"
+    url      = env("DATABASE_URL")
+}
+
+model Session {
+    id          String    @id
+    shop        String
+    state       String
+    isOnline    Boolean   @default(false)
+    scope       String?
+    expires     DateTime?
+    accessToken String
+    userId      BigInt?
+}
+
+model ShopConfig {
+    id            String   @id @default(uuid())
+    shop          String   @unique
+    apiUrl        String   @default("http://localhost:8000/api/v1/talk")
+    widgetEnabled Boolean  @default(true)
+    createdAt     DateTime @default(now())
+    updatedAt     DateTime @updatedAt
+}

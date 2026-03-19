@@ -3,6 +3,7 @@ FastAPI Chat Endpoint
 """
 import uvicorn
 from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
 from src.schemas.api import ChatRequest, ChatResponse
 from src.orchestrator import bot
 from src.logger import LOG_TYPES, logger
@@ -11,6 +12,16 @@ app = FastAPI(
     title="Chatbot API", 
     description="AI Chatbot with LangGraph Control",
     version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://*.myshopify.com",      # All Shopify stores
+    ],
+    allow_credentials=True,
+    allow_methods=["POST", "OPTIONS"],   # Widget uses POST, browser sends OPTIONS preflight
+    allow_headers=["*"],
 )
 
 @app.post("/api/v1/talk")

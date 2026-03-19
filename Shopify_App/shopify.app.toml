@@ -1,0 +1,25 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "41bd738046e07a7d7ad29c54481a7f02"
+name = "testapp-chatbot-1"
+application_url = "https://accidents-barbara-fingers-tvs.trycloudflare.com"
+embedded = true
+
+[webhooks]
+api_version = "2026-01"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products,read_customers"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://accidents-barbara-fingers-tvs.trycloudflare.com/auth/callback",
+  "https://accidents-barbara-fingers-tvs.trycloudflare.com/auth/shopify/callback",
+  "https://accidents-barbara-fingers-tvs.trycloudflare.com/api/auth/callback"
+]
+
+[pos]
+embedded = false
