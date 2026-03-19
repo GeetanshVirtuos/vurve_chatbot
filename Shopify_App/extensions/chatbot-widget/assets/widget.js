@@ -165,6 +165,9 @@ console.log('[GiftCart] Widget script starting...');
       // Create container
       this.container = document.createElement('div');
       this.container.id = 'giftcart-chatbot-container';
+      this.container.style.display = 'block';
+      this.container.style.position = 'relative';
+      this.container.style.zIndex = '2147483647';
       
       // Attach Shadow DOM
       this.shadow = this.container.attachShadow({ mode: 'open' });
