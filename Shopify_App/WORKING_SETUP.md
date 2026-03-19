@@ -77,11 +77,25 @@ shopify app dev --tunnel-url=https://accidents-barbara-fingers-tvs.trycloudflare
 - Must include `:PORT`
 
 ### Cloudflare tunnel stops working
-- Ctrl+C in Terminal 2
-- Restart: `cloudflared tunnel --url http://localhost:3000 --protocol http2`
-- Copy the NEW URL (it changes each restart)
-- Update Terminal 3 command with new URL
-- Restart Shopify CLI in Terminal 3
+
+Quick tunnels generate a **new random URL every restart**. When you restart cloudflared:
+
+1. **Stop** Terminal 2 (Remix) and Terminal 3 (Shopify CLI) with Ctrl+C
+2. **Restart** Terminal 1 (Cloudflare):
+   ```bash
+   cloudflared tunnel --url http://localhost:3000 --protocol http2
+   ```
+3. **Copy the NEW URL** (it will be different!)
+4. **Restart** Terminal 2 (Remix):
+   ```bash
+   npx remix dev --port 3000
+   ```
+5. **Restart** Terminal 3 with the new URL:
+   ```bash
+   shopify app dev --tunnel-url=https://NEW-RANDOM-URL.trycloudflare.com:3000
+   ```
+
+**Pro tip:** Keep the cloudflared terminal running to avoid URL changes!
 
 ## Why Not Just `npm run dev`?
 
@@ -121,3 +135,32 @@ shopify app dev --tunnel-url=https://YOUR-COPIED-URL:3000
 ---
 
 **Pro Tip:** Keep all 3 terminals visible so you can monitor logs from each component.
+
+## 🔥 Want a Permanent URL?
+
+Quick tunnels change URLs every restart. For a **permanent URL that never changes**:
+
+### Option 1: Named Cloudflare Tunnel (Free, Best for Dev)
+
+```bash
+# One-time setup
+cloudflared tunnel login
+cloudflared tunnel create shopify-dev
+cloudflared tunnel route dns shopify-dev shopify-dev.yourdomain.com
+
+# Then always use:
+cloudflared tunnel run shopify-dev
+```
+
+Your URL will always be `https://shopify-dev.yourdomain.com` - never changes!
+
+See [CLOUDFLARE_TUNNEL.md](CLOUDFLARE_TUNNEL.md) for full setup.
+
+### Option 2: Deploy to Production
+
+Deploy your Remix app to:
+- **Cloudflare Pages** (free, easy)
+- **Vercel** (free tier)
+- **Fly.io** (free tier)
+
+Then update `shopify.app.toml` with your permanent production URL.
