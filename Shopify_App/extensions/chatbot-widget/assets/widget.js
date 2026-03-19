@@ -12,7 +12,7 @@
 
   // Configuration
   const DEFAULT_CONFIG = {
-    apiUrl: 'http://localhost:8000/api/v1/talk',
+    apiUrl: 'https://bot.api.vurve.ai/api/v1/talk',
     shop: '',
     theme: {
       primaryColor: '#0284c7',

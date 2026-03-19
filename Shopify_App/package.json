@@ -1,6 +1,7 @@
 {
   "name": "giftcart-chatbot-shopify",
   "version": "1.0.0",
+  "type": "module",
   "private": true,
   "description": "GiftCart AI Chatbot for Shopify",
   "license": "UNLICENSED",
