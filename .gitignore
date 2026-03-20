@@ -1,3 +1,4 @@
+# General Ignores
 .env
 venv/
 chroma_db/
@@ -9,6 +10,23 @@ shopping_queries_dataset/
 dev/
 __pycache__/
 test/
+
+# Shopify App Ignores
+node_modules/
+.shopify
+dist/
+build/
+.cache/
+*.log
+.DS_Store
+*.local
+
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal
+
+# TypeScript
+*.tsbuildinfo
 
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
