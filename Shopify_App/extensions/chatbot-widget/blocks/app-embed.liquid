@@ -5,11 +5,11 @@
 
 <script>
   window.GIFTCART_CHAT_CONFIG = {
-    apiUrl: {{ block.settings.api_url | json }},
+    apiUrl: "https://bot.api.vurve.ai/api/v1/talk",
     shop: {{ shop.permanent_domain | json }},
     theme: {
-      primaryColor: {{ block.settings.primary_color | json }},
-      position: {{ block.settings.position | json }}
+      primaryColor: "#0284c7",
+      position: "bottom-right"
     }
   };
 </script>
@@ -20,36 +20,6 @@
 {
   "name": "GiftCart Chatbot",
   "target": "body",
-  "settings": [
-    {
-      "type": "text",
-      "id": "api_url",
-      "label": "API URL",
-      "default": "https://bot.api.vurve.ai/api/v1/talk",
-      "info": "Your backend API endpoint URL"
-    },
-    {
-      "type": "color",
-      "id": "primary_color",
-      "label": "Primary Color",
-      "default": "#0284c7"
-    },
-    {
-      "type": "select",
-      "id": "position",
-      "label": "Position",
-      "options": [
-        {
-          "value": "bottom-right",
-          "label": "Bottom Right"
-        },
-        {
-          "value": "bottom-left",
-          "label": "Bottom Left"
-        }
-      ],
-      "default": "bottom-right"
-    }
-  ]
+  "settings": []
 }
 {% endschema %}
