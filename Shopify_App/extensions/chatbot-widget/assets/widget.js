@@ -17,20 +17,73 @@ console.log('[GiftCart] Widget script starting...');
     return;
   }
 
-  // Configuration
+  // ============================================================================
+  // BACKEND CONFIGURATION - CHANGE THIS TO YOUR BACKEND URL
+  // ============================================================================
+  const BACKEND_BASE_URL = 'http://localhost:8000'; // Change this to your backend URL
+  const CONFIG_API_ENDPOINT = '/api/v1/chat-widget-config/public';
+  // ============================================================================
+
+  // Default configuration (will be overridden by backend config)
   const DEFAULT_CONFIG = {
     apiUrl: 'https://bot.api.vurve.ai/api/v1/talk',
     shop: '',
-    theme: {
-      primaryColor: '#0284c7',
-      position: 'bottom-right'
-    }
+    assistant_name: 'GiftCart Assistant',
+    brand_color: '#0284c7',
+    text_color: '#FFFFFF',
+    accent_color: '#0284c7',
+    text_color_for_bot: '#1f2937',
+    position: 'bottom-right',
+    trigger_button_text: '',
+    trigger_button_emoji: '🎁',
+    trigger_button_icon_url: '',
+    border_radius: 12,
+    welcome_message: 'Hello! I\'m your GiftCart assistant. How can I help you find the perfect gift today?',
+    enabled: true
   };
 
-  const config = {
-    ...DEFAULT_CONFIG,
-    ...(window.GIFTCART_CHAT_CONFIG || {})
-  };
+  let config = { ...DEFAULT_CONFIG };
+
+  // ============================================================================
+  // UTILITY FUNCTIONS
+  // ============================================================================
+
+  // Get shop domain from Shopify context
+  function getShopDomain() {
+    // Try multiple methods to get shop domain
+    if (window.Shopify && window.Shopify.shop) {
+      return window.Shopify.shop;
+    }
+    // Check for custom config
+    if (window.GIFTCART_CHAT_CONFIG && window.GIFTCART_CHAT_CONFIG.shop) {
+      return window.GIFTCART_CHAT_CONFIG.shop;
+    }
+    // Fallback: extract from current domain
+    return window.location.hostname;
+  }
+
+  // Fetch configuration from backend
+  async function fetchBackendConfig() {
+    try {
+      const shopDomain = getShopDomain();
+      console.log('[GiftCart] Fetching config for shop:', shopDomain);
+      
+      const response = await fetch(`${BACKEND_BASE_URL}${CONFIG_API_ENDPOINT}/${shopDomain}`);
+      
+      if (!response.ok) {
+        console.warn('[GiftCart] Failed to fetch config:', response.status);
+        return null;
+      }
+      
+      const backendConfig = await response.json();
+      console.log('[GiftCart] Backend config received:', backendConfig);
+      
+      return backendConfig;
+    } catch (error) {
+      console.error('[GiftCart] Error fetching backend config:', error);
+      return null;
+    }
+  }
 
   // Utility: Simple markdown-like text formatting
   function formatMessage(text) {
@@ -49,22 +102,111 @@ console.log('[GiftCart] Widget script starting...');
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   }
 
-  // Utility: Get or create user UUID
-  function getUserId() {
-    const STORAGE_KEY = 'giftcart_user_uuid';
-    let userId = localStorage.getItem(STORAGE_KEY);
-    
-    if (!userId) {
-      userId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0;
-        const v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-      });
-      localStorage.setItem(STORAGE_KEY, userId);
-    }
-    
-    return userId;
+  // Utility: Escape HTML to prevent XSS
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
+
+  // Utility: Generate UUID v4
+  function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  // Utility: Get or create user UUID with session management
+  function getUserId(shopDomain) {
+    const USER_SESSION_KEY = 'gc_user_session';
+    const EXPIRATION_TIME = 24 * 60 * 60 * 1000; // 24 hours
+    
+    try {
+      const stored = localStorage.getItem(USER_SESSION_KEY);
+      const now = Date.now();
+      
+      if (stored) {
+        const session = JSON.parse(stored);
+        // Validate session: same shop domain and not expired
+        if (session.shop_domain === shopDomain && (now - session.created_at) < EXPIRATION_TIME) {
+          // Update last activity
+          session.last_activity = now;
+          localStorage.setItem(USER_SESSION_KEY, JSON.stringify(session));
+          return session.user_uuid;
+        }
+      }
+      
+      // Create new session
+      const newSession = {
+        user_uuid: generateUUID(),
+        shop_domain: shopDomain,
+        created_at: now,
+        last_activity: now
+      };
+      localStorage.setItem(USER_SESSION_KEY, JSON.stringify(newSession));
+      return newSession.user_uuid;
+    } catch (error) {
+      console.error('[GiftCart] Error managing user session:', error);
+      return generateUUID();
+    }
+  }
+
+  // Utility: Manage chat history in localStorage
+  const ChatHistory = {
+    STORAGE_KEY: 'gc_chat_history',
+    EXPIRATION_TIME: 24 * 60 * 60 * 1000, // 24 hours
+    
+    // Load all valid (non-expired) messages
+    load: function() {
+      try {
+        const stored = localStorage.getItem(this.STORAGE_KEY);
+        if (!stored) return [];
+        
+        const messages = JSON.parse(stored);
+        const now = Date.now();
+        
+        // Filter out expired messages (older than 24 hours)
+        const valid = messages.filter(msg => (now - msg.timestamp) < this.EXPIRATION_TIME);
+        
+        // Save cleaned history
+        if (valid.length !== messages.length) {
+          localStorage.setItem(this.STORAGE_KEY, JSON.stringify(valid));
+        }
+        
+        return valid;
+      } catch (error) {
+        console.error('[GiftCart] Error loading chat history:', error);
+        return [];
+      }
+    },
+    
+    // Add message to history
+    add: function(role, content, userId) {
+      try {
+        const messages = this.load();
+        messages.push({
+          role: role,
+          content: content,
+          user_uuid: userId,
+          timestamp: Date.now()
+        });
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(messages));
+      } catch (error) {
+        console.error('[GiftCart] Error saving message to history:', error);
+      }
+    },
+    
+    // Clear all chat history
+    clear: function() {
+      try {
+        localStorage.removeItem(this.STORAGE_KEY);
+      } catch (error) {
+        console.error('[GiftCart] Error clearing chat history:', error);
+      }
+    }
+  };
 
   // API Service with retry logic
   class ChatAPI {
@@ -144,21 +286,29 @@ console.log('[GiftCart] Widget script starting...');
 
   // Main Chatbot Widget Class
   class GiftCartChatbot {
-    constructor(config) {
+    constructor(config, userId) {
       this.config = config;
-      this.userId = getUserId();
+      this.userId = userId;
       this.api = new ChatAPI(config.apiUrl);
       this.messages = [];
       this.isOpen = false;
       this.isLoading = false;
+      this.shopDomain = getShopDomain();
       
       this.init();
     }
 
     init() {
+      // Check if widget is enabled
+      if (!this.config.enabled) {
+        console.log('[GiftCart] Widget is disabled, not initializing');
+        return;
+      }
+      
       this.createWidget();
       this.attachEventListeners();
-      this.addWelcomeMessage();
+      this.setupCrossTabSync();
+      this.loadChatHistory();
     }
 
     createWidget() {
@@ -191,32 +341,44 @@ console.log('[GiftCart] Widget script starting...');
     }
 
     getTemplate() {
-      const position = this.config.theme.position === 'bottom-left' ? 'left: 20px;' : 'right: 20px;';
-      const primaryColor = this.config.theme.primaryColor;
+      // Determine position styles
+      let positionStyle = '';
+      switch (this.config.position) {
+        case 'bottom-left':
+          positionStyle = 'left: 20px;';
+          break;
+        case 'bottom-center':
+          positionStyle = 'left: 50%; transform: translateX(-50%);';
+          break;
+        case 'bottom-right':
+        default:
+          positionStyle = 'right: 20px;';
+      }
+
+      // Get button display content
+      const buttonContent = this.getButtonContent();
 
       return `
         <style>
           ${this.getStyles()}
         </style>
         
-        <div id="gc-chat-button" style="${position}">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2C6.48 2 2 6.48 2 12C2 13.89 2.53 15.66 3.45 17.15L2.05 21.95L6.85 20.55C8.34 21.47 10.11 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C10.34 20 8.77 19.53 7.45 18.71L7.14 18.53L4.23 19.27L4.97 16.36L4.79 16.05C3.97 14.73 3.5 13.16 3.5 11.5C3.5 7.36 6.86 4 11 4C15.14 4 18.5 7.36 18.5 11.5C18.5 15.64 15.14 19 11 19H12ZM16 13.5C16 13.78 15.78 14 15.5 14H8.5C8.22 14 8 13.78 8 13.5C8 13.22 8.22 13 8.5 13H15.5C15.78 13 16 13.22 16 13.5ZM13.5 10H8.5C8.22 10 8 9.78 8 9.5C8 9.22 8.22 9 8.5 9H13.5C13.78 9 14 9.22 14 9.5C14 9.78 13.78 10 13.5 10Z" fill="white"/>
-          </svg>
+        <div id="gc-chat-button" style="${positionStyle}">
+          ${buttonContent}
         </div>
         
-        <div id="gc-chat-window" style="${position}">
+        <div id="gc-chat-window" style="${positionStyle}">
           <div id="gc-header">
             <div id="gc-header-content">
-              <div id="gc-header-icon">🎁</div>
+              <div id="gc-header-icon">${this.config.trigger_button_icon_url ? `<img src="${this.config.trigger_button_icon_url}" alt="icon" />` : this.config.trigger_button_emoji}</div>
               <div>
-                <div id="gc-header-title">GiftCart Assistant</div>
-                <div id="gc-header-subtitle">Here to help you find perfect gifts</div>
+                <div id="gc-header-title">${escapeHtml(this.config.assistant_name)}</div>
+                <div id="gc-header-subtitle">Online</div>
               </div>
             </div>
             <button id="gc-close-btn" aria-label="Close chat">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <path d="M18 6L6 18M6 6L18 18" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
               </svg>
             </button>
           </div>
@@ -225,7 +387,9 @@ console.log('[GiftCart] Widget script starting...');
           
           <div id="gc-typing-indicator" style="display: none;">
             <div class="gc-message gc-bot-message">
-              <div class="gc-avatar gc-bot-avatar">🤖</div>
+              <div class="gc-avatar gc-bot-avatar">
+                ${this.config.trigger_button_icon_url ? `<img src="${this.config.trigger_button_icon_url}" alt="icon" />` : this.config.trigger_button_emoji}
+              </div>
               <div class="gc-message-content">
                 <div class="gc-typing-dots">
                   <span></span>
@@ -252,26 +416,55 @@ console.log('[GiftCart] Widget script starting...');
       `;
     }
 
+    getButtonContent() {
+      if (this.config.trigger_button_text) {
+        // Icon/Emoji on left, text on right
+        const icon = this.config.trigger_button_icon_url 
+          ? `<img id="gc-button-icon" src="${this.config.trigger_button_icon_url}" alt="chat" />`
+          : `<span id="gc-button-emoji">${this.config.trigger_button_emoji}</span>`;
+        
+        return `
+          ${icon}
+          <span id="gc-button-text">${escapeHtml(this.config.trigger_button_text)}</span>
+        `;
+      } else {
+        // Just icon/emoji
+        return this.config.trigger_button_icon_url 
+          ? `<img id="gc-button-icon" src="${this.config.trigger_button_icon_url}" alt="chat" />`
+          : `<span id="gc-button-emoji">${this.config.trigger_button_emoji}</span>`;
+      }
+    }
+
     getStyles() {
-      const primaryColor = this.config.theme.primaryColor;
+      const brandColor = this.config.brand_color;
+      const textColor = this.config.text_color;
+      const accentColor = this.config.accent_color;
+      const textColorForBot = this.config.text_color_for_bot;
+      const borderRadius = this.config.border_radius || 12;
       
       return `
         * {
           box-sizing: border-box;
           margin: 0;
           padding: 0;
+          font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+          font-size: 0.875rem;
+          font-weight: 500;
         }
 
         #gc-chat-button {
           position: fixed;
           bottom: 20px;
-          width: 60px;
+          width: auto;
+          min-width: 60px;
           height: 60px;
-          background: linear-gradient(135deg, ${primaryColor} 0%, ${this.adjustColor(primaryColor, -20)} 100%);
-          border-radius: 50%;
+          background: linear-gradient(135deg, ${brandColor} 0%, ${this.adjustColor(brandColor, -20)} 100%);
+          border-radius: ${borderRadius}px;
           display: flex;
           align-items: center;
           justify-content: center;
+          gap: 8px;
+          padding: 0 14px;
           cursor: pointer;
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
           transition: all 0.3s ease;
@@ -283,9 +476,26 @@ console.log('[GiftCart] Widget script starting...');
           box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
         }
 
-        #gc-chat-button svg {
+        #gc-button-emoji {
+          font-size: 24px;
+          line-height: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        #gc-button-icon {
           width: 28px;
           height: 28px;
+          display: block;
+          border-radius: ${borderRadius}px;
+        }
+
+        #gc-button-text {
+          color: ${textColor};
+          font-size: 1.5rem;
+          font-weight: 500;
+          white-space: nowrap;
         }
 
         #gc-chat-window {
@@ -293,15 +503,14 @@ console.log('[GiftCart] Widget script starting...');
           bottom: 90px;
           width: 380px;
           max-width: calc(100vw - 40px);
-          height: 600px;
-          max-height: calc(100vh - 120px);
+          height: calc(50vh);
+          max-height: calc(50vh);
           background: white;
           border-radius: 16px;
           box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
           display: none;
           flex-direction: column;
           z-index: 999999;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
         }
 
         #gc-chat-window.gc-open {
@@ -312,17 +521,17 @@ console.log('[GiftCart] Widget script starting...');
         @keyframes slideUp {
           from {
             opacity: 0;
-            transform: translateY(20px);
+            bottom: 70px;
           }
           to {
             opacity: 1;
-            transform: translateY(0);
+            bottom: 90px;
           }
         }
 
         #gc-header {
-          background: linear-gradient(135deg, ${primaryColor} 0%, ${this.adjustColor(primaryColor, -20)} 100%);
-          color: white;
+          background: linear-gradient(135deg, ${brandColor} 0%, ${this.adjustColor(brandColor, -20)} 100%);
+          color: ${textColor};
           padding: 16px;
           border-radius: 16px 16px 0 0;
           display: flex;
@@ -339,17 +548,29 @@ console.log('[GiftCart] Widget script starting...');
         #gc-header-icon {
           font-size: 32px;
           line-height: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        #gc-header-icon img {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          object-fit: cover;
         }
 
         #gc-header-title {
           font-size: 16px;
           font-weight: 600;
+          color: ${textColor};
         }
 
         #gc-header-subtitle {
           font-size: 12px;
           opacity: 0.9;
           margin-top: 2px;
+          color: ${textColor};
         }
 
         #gc-close-btn {
@@ -363,6 +584,7 @@ console.log('[GiftCart] Widget script starting...');
           align-items: center;
           justify-content: center;
           transition: background 0.2s;
+          color: ${textColor};
         }
 
         #gc-close-btn:hover {
@@ -420,14 +642,24 @@ console.log('[GiftCart] Widget script starting...');
           justify-content: center;
           font-size: 16px;
           flex-shrink: 0;
+          background-size: cover;
+          background-position: center;
+        }
+
+        .gc-avatar img {
+          width: 100%;
+          height: 100%;
+          border-radius: 50%;
+          object-fit: cover;
         }
 
         .gc-user-avatar {
-          background: linear-gradient(135deg, ${primaryColor} 0%, ${this.adjustColor(primaryColor, -20)} 100%);
+          background: white;
+          border: 2px solid ${brandColor};
         }
 
         .gc-bot-avatar {
-          background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+          background: linear-gradient(135deg, ${accentColor} 0%, ${this.adjustColor(accentColor, -20)} 100%);
         }
 
         .gc-message-content {
@@ -439,21 +671,21 @@ console.log('[GiftCart] Widget script starting...');
         }
 
         .gc-user-message .gc-message-content {
-          background: linear-gradient(135deg, ${primaryColor} 0%, ${this.adjustColor(primaryColor, -20)} 100%);
-          color: white;
+          background: white;
+          color: #1f2937;
+          border: 2px solid ${brandColor};
           border-radius: 16px 16px 4px 16px;
         }
 
         .gc-bot-message .gc-message-content {
-          background: white;
-          color: #1f2937;
-          border: 1px solid #e5e7eb;
+          background: ${accentColor};
+          color: ${textColor};
           border-radius: 16px 16px 16px 4px;
         }
 
         .gc-error-message .gc-message-content {
           background: #fef2f2;
-          border-color: #fecaca;
+          border: 1px solid #fecaca;
           color: #991b1b;
         }
 
@@ -466,12 +698,12 @@ console.log('[GiftCart] Widget script starting...');
         }
 
         .gc-message-content a {
-          color: ${primaryColor};
+          color: ${brandColor};
           text-decoration: underline;
         }
 
         .gc-user-message .gc-message-content a {
-          color: white;
+          color: ${textColor};
         }
 
         .gc-message-time {
@@ -535,7 +767,7 @@ console.log('[GiftCart] Widget script starting...');
 
         #gc-input {
           flex: 1;
-          border: 1px solid #d1d5db;
+          border: 2px solid #d1d5db;
           border-radius: 12px;
           padding: 10px 14px;
           font-size: 14px;
@@ -544,20 +776,26 @@ console.log('[GiftCart] Widget script starting...');
           max-height: 120px;
           outline: none;
           transition: border-color 0.2s;
+          color: #1f2937;
+        }
+
+        #gc-input::placeholder {
+          color: #9ca3af;
         }
 
         #gc-input:focus {
-          border-color: ${primaryColor};
+          border-color: ${brandColor};
         }
 
         #gc-input:disabled {
           background: #f9fafb;
           cursor: not-allowed;
+          color: #9ca3af;
         }
 
         #gc-send-btn {
-          background: ${primaryColor};
-          color: white;
+          background: ${brandColor};
+          color: ${textColor};
           border: none;
           width: 40px;
           height: 40px;
@@ -571,7 +809,7 @@ console.log('[GiftCart] Widget script starting...');
         }
 
         #gc-send-btn:hover:not(:disabled) {
-          background: ${this.adjustColor(primaryColor, -20)};
+          background: ${this.adjustColor(brandColor, -20)};
           transform: scale(1.05);
         }
 
@@ -580,21 +818,163 @@ console.log('[GiftCart] Widget script starting...');
           cursor: not-allowed;
         }
 
-        /* Mobile responsive */
-        @media (max-width: 480px) {
+        /* Tablet: iPad Mini, Surface Pro, etc (768px - 1024px) */
+        @media (max-width: 1024px) and (min-width: 769px) and (min-height: 700px) {
           #gc-chat-window {
-            width: calc(100vw - 20px);
-            height: calc(100vh - 100px);
+            width: 400px;
+            max-width: calc(100vw - 40px);
+            height: calc(70vh);
+            max-height: calc(70vh);
             bottom: 80px;
           }
 
           #gc-chat-button {
-            width: 56px;
-            height: 56px;
+            width: auto;
+            min-width: 60px;
+            height: 52px;
+            padding: 0 14px;
+            bottom: 20px;
+          }
+
+          #gc-button-text {
+            font-size: 13px;
+            display: flex;
+          }
+
+          #gc-button-icon {
+            width: 26px;
+            height: 26px;
+          }
+
+          #gc-button-emoji {
+            font-size: 22px;
+          }
+
+          .gc-message-content {
+            max-width: 80%;
+            font-size: 13px;
+          }
+
+          #gc-header-title {
+            font-size: 15px;
+          }
+
+          #gc-header-subtitle {
+            font-size: 11px;
+          }
+        }
+
+        /* Landscape Tablets: 1024x600 and similar (wide but short) */
+        @media (min-width: 1024px) and (max-height: 700px) {
+          #gc-chat-window {
+            width: 380px;
+            max-width: calc(100vw - 40px);
+            height: calc(80vh);
+            max-height: calc(80vh);
+            bottom: 90px;
+          }
+
+          #gc-chat-button {
+            width: auto;
+            min-width: 60px;
+            height: 52px;
+            padding: 0 14px;
+            bottom: 20px;
+          }
+
+          #gc-button-text {
+            font-size: 13px;
+            display: flex;
+          }
+
+          #gc-button-icon {
+            width: 26px;
+            height: 26px;
+          }
+
+          #gc-button-emoji {
+            font-size: 22px;
+          }
+
+          .gc-message-content {
+            max-width: 80%;
+            font-size: 13px;
+          }
+
+          #gc-header-title {
+            font-size: 15px;
+          }
+
+          #gc-header-subtitle {
+            font-size: 11px;
+          }
+        }
+
+        /* Small Tablet: Surface Duo, small tablets (540px - 768px) */
+        @media (max-width: 768px) and (min-width: 481px) {
+          #gc-chat-window {
+            width: 360px;
+            max-width: calc(100vw - 40px);
+            height: calc(60vh);
+            max-height: calc(60vh);
+            bottom: 70px;
+          }
+
+          #gc-chat-button {
+            width: auto;
+            min-width: 54px;
+            height: 48px;
+            padding: 0 12px;
+            bottom: 16px;
+          }
+
+          #gc-button-text {
+            font-size: 12px;
+            display: flex;
+          }
+
+          #gc-button-icon {
+            width: 24px;
+            height: 24px;
+          }
+
+          #gc-button-emoji {
+            font-size: 20px;
           }
 
           .gc-message-content {
             max-width: 85%;
+            font-size: 12px;
+          }
+
+          #gc-header-title {
+            font-size: 14px;
+          }
+
+          #gc-header-subtitle {
+            font-size: 11px;
+          }
+        }
+
+        /* Mobile: phones (max 480px) */
+        @media (max-width: 480px) {
+          #gc-chat-window {
+            width: calc(100vw - 24px);
+            height: calc(50vh);
+            max-height: calc(50vh);
+            bottom: 60px;
+          }
+
+          #gc-chat-button {
+            min-width: 50px;
+            height: 44px;
+            bottom: 12px;
+            padding: 0 12px;
+          }
+
+          #gc-button-text {
+            font-size: 12px;
+            display: flex;
           }
         }
       `;
@@ -631,6 +1011,33 @@ console.log('[GiftCart] Widget script starting...');
       });
     }
 
+    setupCrossTabSync() {
+      // Listen for chat history updates from other tabs
+      window.addEventListener('storage', (e) => {
+        if (e.key === ChatHistory.STORAGE_KEY && e.newValue) {
+          try {
+            const newHistory = JSON.parse(e.newValue);
+            const currentCount = this.messages.length;
+            
+            // If history has grown, render new messages
+            if (newHistory.length > currentCount) {
+              const newMessages = newHistory.slice(currentCount);
+              newMessages.forEach(msg => {
+                this.renderMessage({
+                  role: msg.role,
+                  content: msg.content,
+                  timestamp: new Date(msg.timestamp)
+                });
+              });
+              this.scrollToBottom();
+            }
+          } catch (error) {
+            console.error('[GiftCart] Error syncing chat history from other tabs:', error);
+          }
+        }
+      });
+    }
+
     toggleChat() {
       this.isOpen = !this.isOpen;
       if (this.isOpen) {
@@ -646,12 +1053,35 @@ console.log('[GiftCart] Widget script starting...');
       this.elements.window.classList.remove('gc-open');
     }
 
+    loadChatHistory() {
+      const history = ChatHistory.load();
+      
+      if (history.length === 0) {
+        // No history found, add welcome message
+        this.addWelcomeMessage();
+      } else {
+        // Render all historical messages
+        history.forEach(msg => {
+          this.renderMessage({
+            role: msg.role,
+            content: msg.content,
+            timestamp: new Date(msg.timestamp)
+          });
+        });
+      }
+      
+      this.scrollToBottom();
+    }
+
     addWelcomeMessage() {
-      this.addMessage({
+      const welcomeMsg = {
         role: 'assistant',
-        content: "👋 Hello! I'm your GiftCart assistant. How can I help you find the perfect gift today?",
+        content: this.config.welcome_message,
         timestamp: new Date()
-      });
+      };
+      this.messages.push(welcomeMsg);
+      this.renderMessage(welcomeMsg);
+      this.scrollToBottom();
     }
 
     addMessage(message) {
@@ -666,7 +1096,19 @@ console.log('[GiftCart] Widget script starting...');
       
       const avatar = document.createElement('div');
       avatar.className = `gc-avatar ${message.role === 'user' ? 'gc-user-avatar' : 'gc-bot-avatar'}`;
-      avatar.textContent = message.role === 'user' ? '👤' : '🤖';
+      
+      if (message.role === 'user') {
+        avatar.textContent = '👤';
+      } else {
+        if (this.config.trigger_button_icon_url) {
+          const img = document.createElement('img');
+          img.src = this.config.trigger_button_icon_url;
+          img.alt = 'bot';
+          avatar.appendChild(img);
+        } else {
+          avatar.textContent = this.config.trigger_button_emoji;
+        }
+      }
       
       const content = document.createElement('div');
       content.className = 'gc-message-content';
@@ -686,12 +1128,16 @@ console.log('[GiftCart] Widget script starting...');
       const text = this.elements.input.value.trim();
       if (!text || this.isLoading) return;
 
-      // Add user message
-      this.addMessage({
+      // Add user message to state and render
+      const userMsg = {
         role: 'user',
         content: text,
         timestamp: new Date()
-      });
+      };
+      this.addMessage(userMsg);
+      
+      // Save to history immediately
+      ChatHistory.add('user', text, this.userId);
 
       // Clear input
       this.elements.input.value = '';
@@ -707,12 +1153,16 @@ console.log('[GiftCart] Widget script starting...');
       this.setLoading(false);
 
       // Add bot response
-      this.addMessage({
+      const botMsg = {
         role: 'assistant',
         content: response.success ? response.message : response.error,
         error: !response.success,
         timestamp: new Date()
-      });
+      };
+      this.addMessage(botMsg);
+      
+      // Save bot response to history
+      ChatHistory.add('assistant', response.success ? response.message : response.error, this.userId);
     }
 
     setLoading(loading) {
@@ -728,20 +1178,50 @@ console.log('[GiftCart] Widget script starting...');
   }
 
   // Initialize chatbot when DOM is ready
-  function init() {
+  async function init() {
     console.log('[GiftCart] Init function called, readyState:', document.readyState);
-    console.log('[GiftCart] Config:', config);
+    
+    // Get shop domain first for session management
+    const shopDomain = getShopDomain();
+    
+    // Get or create user ID with session validation
+    const userId = getUserId(shopDomain);
+    console.log('[GiftCart] User ID:', userId);
+    
+    // Fetch backend configuration
+    const backendConfig = await fetchBackendConfig();
+    
+    if (backendConfig) {
+      // Merge backend config with defaults
+      config = {
+        ...DEFAULT_CONFIG,
+        ...backendConfig,
+      };
+      console.log('[GiftCart] Final config:', config);
+    } else {
+      console.warn('[GiftCart] Could not fetch backend config, using defaults');
+      config = {
+        ...DEFAULT_CONFIG,
+        ...(window.GIFTCART_CHAT_CONFIG || {})
+      };
+    }
+    
+    // Check if widget is enabled
+    if (!config.enabled) {
+      console.log('[GiftCart] Widget is disabled in configuration');
+      return;
+    }
     
     if (document.readyState === 'loading') {
       console.log('[GiftCart] Waiting for DOMContentLoaded...');
       document.addEventListener('DOMContentLoaded', () => {
         console.log('[GiftCart] DOMContentLoaded fired, creating chatbot...');
-        window.GiftCartChatbot = new GiftCartChatbot(config);
+        window.GiftCartChatbot = new GiftCartChatbot(config, userId);
         console.log('[GiftCart] Chatbot created:', window.GiftCartChatbot);
       });
     } else {
       console.log('[GiftCart] DOM already ready, creating chatbot immediately...');
-      window.GiftCartChatbot = new GiftCartChatbot(config);
+      window.GiftCartChatbot = new GiftCartChatbot(config, userId);
       console.log('[GiftCart] Chatbot created:', window.GiftCartChatbot);
     }
   }
