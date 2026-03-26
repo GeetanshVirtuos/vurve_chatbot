@@ -4,6 +4,7 @@ from typing import Optional
 class ChatRequest(BaseModel):
     user_uuid: str
     msg: str
+    shop_id: str
 
 class ChatResponse(BaseModel):
     user_uuid: str

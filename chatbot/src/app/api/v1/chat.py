@@ -39,6 +39,7 @@ async def talk(request: ChatRequest, response: Response):
         # Hand off to LangGraph workflow
         result = await bot.ainvoke({
             "user_uuid": request.user_uuid,
+            "shop_id": request.shop_id,
             "last_user_message": request.msg,
             "data": {}
         })

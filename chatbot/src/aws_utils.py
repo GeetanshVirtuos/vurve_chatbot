@@ -5,7 +5,7 @@ import dotenv
 import os
 dotenv.load_dotenv()  
 
-async def retrieve_from_knowledge_base(query: str, knowledge_base_id: str = os.getenv("AWS_KNOWLEDGE_BASE_ID")) -> str:
+async def retrieve_from_knowledge_base(query: str, knowledge_base_id: str = os.getenv("AWS_KNOWLEDGE_BASE_ID"), shop_id: str = "1") -> str:
     """
     Retrieve relevant information from AWS Knowledge Base for RAG.
     
@@ -23,6 +23,17 @@ async def retrieve_from_knowledge_base(query: str, knowledge_base_id: str = os.g
                 knowledgeBaseId=knowledge_base_id,
                 retrievalQuery={
                     'text': query
+                },
+                retrievalConfiguration={
+                    "vectorSearchConfiguration":{
+                        "numberOfResults": 5,
+                        "filter": {
+                            "equals": {
+                                "key": "shop_id",
+                                "value": shop_id
+                            }
+                        }
+                    }
                 }
             )
             

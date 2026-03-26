@@ -35,6 +35,7 @@ async def initialize_redis():
 class AgentState(TypedDict):
     """State of the agent."""
     user_uuid: str
+    shop_id: str
     last_user_message: str
     data: dict
 
@@ -286,7 +287,7 @@ Response style:
                 content = msg.replace("bot_response: ", "", 1)
                 messages.append({"role": "assistant", "content": content})
 
-        data_from_kb = await retrieve_from_knowledge_base(state["last_user_message"])
+        data_from_kb = await retrieve_from_knowledge_base(query=state["last_user_message"], shop_id=state["shop_id"])
         messages.append({"role": "system", "content": f"Information retrieved from knowledge base:\n{data_from_kb}"})
         logger(f"Retrieved data from KB: {data_from_kb}", LOG_TYPES.INFORMATION)
         
